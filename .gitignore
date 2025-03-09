@@ -1,0 +1,6 @@
+.DS_Store
+.env
+/inputs
+/comparisons
+/outputs
+__pycache__
