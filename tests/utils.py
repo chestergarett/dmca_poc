@@ -4,13 +4,100 @@ import numpy as np
 import os
 from PIL import Image
 import pillow_heif
-
-# Load multiple reference images
-import os
 import json
-import numpy as np
-import face_recognition
-import pillow_heif
+import dlib
+from scipy.spatial import distance as dist
+
+# Load dlib's facial landmark predictor
+PREDICTOR_PATH = "shape_predictor_68_face_landmarks.dat"  # Download this file
+detector = dlib.get_frontal_face_detector()
+predictor = dlib.shape_predictor(PREDICTOR_PATH)
+
+# Eye landmark indices
+LEFT_EYE = list(range(42, 48))
+RIGHT_EYE = list(range(36, 42))
+
+def eye_aspect_ratio(eye):
+    """Calculate the Eye Aspect Ratio (EAR) to detect blinks"""
+    A = dist.euclidean(eye[1], eye[5])  # Vertical distance
+    B = dist.euclidean(eye[2], eye[4])  # Vertical distance
+    C = dist.euclidean(eye[0], eye[3])  # Horizontal distance
+    ear = (A + B) / (2.0 * C)
+    return ear
+
+def capture_face_from_camera(save_path="outputs/camera_face.json"):
+    cap = cv2.VideoCapture(0)  # Open webcam
+    print("Capturing face... Follow the liveness test.")
+
+    blink_detected = False
+    EAR_THRESHOLD = 0.2  # Adjust if needed
+    BLINK_FRAMES = 3  # Number of frames with closed eyes required to confirm blink
+
+    while not blink_detected:
+        ret, frame = cap.read()
+        if not ret:
+            print("Failed to capture image")
+            continue
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = detector(gray)
+
+        for face in faces:
+            landmarks = predictor(gray, face)
+            
+            # Get eye landmarks
+            left_eye = np.array([(landmarks.part(n).x, landmarks.part(n).y) for n in LEFT_EYE])
+            right_eye = np.array([(landmarks.part(n).x, landmarks.part(n).y) for n in RIGHT_EYE])
+            
+            left_ear = eye_aspect_ratio(left_eye)
+            right_ear = eye_aspect_ratio(right_eye)
+            avg_ear = (left_ear + right_ear) / 2.0  # Average of both eyes
+
+            # Check if EAR is below threshold for a few frames (confirm blink)
+            if avg_ear < EAR_THRESHOLD:
+                BLINK_FRAMES -= 1
+                if BLINK_FRAMES == 0:
+                    print("Blink detected! Liveness test passed.")
+                    blink_detected = True
+                    break
+            else:
+                BLINK_FRAMES = 3  # Reset counter if eyes are open
+
+        cv2.imshow("Look at the camera and blink", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to quit
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+    if not blink_detected:
+        print("Liveness test failed. Try again.")
+        return None
+
+    # Convert to RGB
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    # Extract face encoding
+    encodings = face_recognition.face_encodings(rgb_frame)
+
+    if not encodings:
+        print("No face encoding detected, please try again.")
+        return None
+
+    face_encoding = encodings[0]
+
+    # Save encoding to JSON
+    face_data = {
+        "name": "Captured_Face",
+        "encoding": face_encoding.tolist()
+    }
+
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    with open(save_path, "w") as f:
+        json.dump(face_data, f)
+
+    print(f"Saved face encoding to {save_path}")
+    return face_encoding
 
 def load_known_faces(reference_folder, save_path="outputs/faces.json"):
     encodings_list = []
@@ -98,8 +185,6 @@ def recognize_person_in_video(video_path, json_path="outputs/faces.json"):
             matches = face_recognition.compare_faces([known_encoding], encoding, tolerance=0.5)
             if True in matches:
                 return f"{person_name} found in video!"
-                video_capture.release()
-                return True  
 
     video_capture.release()
     return "No match found in video."
@@ -110,5 +195,7 @@ def recognize_person_in_video(video_path, json_path="outputs/faces.json"):
 # mean_encoding, person_name = load_known_faces(reference_folder)
 
 # # Test with a new image
-test_video_path = "comparisons/Autumn.mp4"
-recognize_person_in_video(test_video_path)
+# test_video_path = "comparisons/Autumn.mp4"
+# recognize_person_in_video(test_video_path)
+
+capture_face_from_camera(save_path="outputs/camera_face.json")

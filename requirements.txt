@@ -1,0 +1,10 @@
+flask
+opencv-python-headless
+numpy
+face_recognition
+requests
+supabase
+python-dotenv
+scipy
+cmake
+streamlit
